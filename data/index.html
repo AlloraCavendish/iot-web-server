@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>ESP8266 WebSocket LED</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>ESP8266 WebSocket LED Control</h1>
+    <p>LED Status: <span id="ledStatus">...</span></p>
+    <label class="toggle">
+      <input type="checkbox" id="ledToggle">
+      <span class="slider"></span>
+    </label>
+
+    <h2>Status Log</h2>
+    <ul id="logList"></ul>
+  </div>
+
+  <script>
+    // ✅ Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyA-BEiRRLMkbHCRD6fu9ki2rmDXnx3RofY",
+      authDomain: "iot-controller-webapp.firebaseapp.com",
+      projectId: "iot-controller-webapp",
+      storageBucket: "iot-controller-webapp.firebasestorage.app.appspot.com",
+      messagingSenderId: "1012983548143",
+      appId: "1:1012983548143:web:2755b97df5b95f88c4f31a"
+    };
+
+    // ✅ Init Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    const ledStatus = document.getElementById("ledStatus");
+    const ledToggle = document.getElementById("ledToggle");
+    const logList = document.getElementById("logList");
+
+    // ✅ Connect WebSocket
+    const ws = new WebSocket(`ws://192.168.0.28/ws`);
+
+    ws.onmessage = async (event) => {
+      const state = event.data;
+      ledStatus.textContent = state;
+      ledToggle.checked = (state === "ON");
+
+      // Log to Firestore
+      await db.collection("led_logs").add({
+        status: state,
+        timestamp: new Date()
+      });
+    };
+
+    ledToggle.addEventListener("change", () => {
+      const msg = ledToggle.checked ? "on" : "off";
+      ws.send(msg);
+    });
+
+    // ✅ Fetch and display log history
+    db.collection("led_logs")
+      .orderBy("timestamp", "desc")
+      .limit(10)
+      .onSnapshot(snapshot => {
+        logList.innerHTML = ""; // clear old logs
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          const li = document.createElement("li");
+          li.textContent = `${data.status} at ${new Date(data.timestamp.toDate()).toLocaleString()}`;
+          logList.appendChild(li);
+        });
+      });
+  </script>
+</body>
+</html>
