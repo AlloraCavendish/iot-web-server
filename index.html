@@ -44,7 +44,7 @@
     const logList = document.getElementById("logList");
 
     // ✅ Connect WebSocket
-    const ws = new WebSocket(`ws://192.168.0.28/ws`);
+    const ws = new WebSocket(`wss://websocket-relayserver.onrender.com`);
 
     ws.onmessage = async (event) => {
       const state = event.data;
