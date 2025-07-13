@@ -2,30 +2,188 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>ESP8266 WebSocket LED</title>
+  <title>ESP8266 WebSocket LED & Sensor Control</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1, h2 {
+      color: #333;
+    }
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+    .status-card {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 8px;
+      border-left: 4px solid #007bff;
+    }
+    .status-card h3 {
+      margin: 0 0 10px 0;
+      color: #007bff;
+    }
+    .status-value {
+      font-size: 1.2em;
+      font-weight: bold;
+      color: #333;
+    }
+    .toggle {
+      position: relative;
+      display: inline-block;
+      width: 60px;
+      height: 34px;
+      margin: 20px 0;
+    }
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 34px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 26px;
+      width: 26px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    input:checked + .slider {
+      background-color: #2196F3;
+    }
+    input:checked + .slider:before {
+      transform: translateX(26px);
+    }
+    .log-container {
+      max-height: 400px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 10px;
+      background: #f9f9f9;
+    }
+    .log-item {
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+      font-family: monospace;
+    }
+    .log-item:last-child {
+      border-bottom: none;
+    }
+    .sensor-data {
+      background-color: #e8f5e8;
+    }
+    .button-event {
+      background-color: #fff3cd;
+    }
+    .led-event {
+      background-color: #e2e8f0;
+    }
+    .connection-status {
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+      font-weight: bold;
+    }
+    .connected {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .disconnected {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+  </style>
 
   <!-- Firebase SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-
 </head>
 <body>
   <div class="container">
-    <h1>ESP8266 WebSocket LED Control</h1>
-    <p>LED Status: <span id="ledStatus">...</span></p>
-    <label class="toggle">
-      <input type="checkbox" id="ledToggle">
-      <span class="slider"></span>
-    </label>
+    <h1>ESP8266 WebSocket LED & Sensor Control</h1>
+    
+    <div id="connectionStatus" class="connection-status disconnected">
+      WebSocket: Disconnected
+    </div>
 
-    <h2>Status Log</h2>
-    <ul id="logList"></ul>
+    <div class="status-grid">
+      <div class="status-card">
+        <h3>LED Status</h3>
+        <div class="status-value" id="ledStatus">...</div>
+        <label class="toggle">
+          <input type="checkbox" id="ledToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+      
+      <div class="status-card">
+        <h3>Sensor Value</h3>
+        <div class="status-value" id="sensorValue">...</div>
+      </div>
+      
+      <div class="status-card">
+        <h3>Voltage</h3>
+        <div class="status-value" id="voltageValue">...</div>
+      </div>
+      
+      <div class="status-card">
+        <h3>Button State</h3>
+        <div class="status-value" id="buttonState">...</div>
+      </div>
+      
+      <div class="status-card">
+        <h3>WiFi Signal</h3>
+        <div class="status-value" id="wifiRssi">...</div>
+      </div>
+      
+      <div class="status-card">
+        <h3>Uptime</h3>
+        <div class="status-value" id="uptimeValue">...</div>
+      </div>
+    </div>
+
+    <h2>Real-time Events</h2>
+    <div class="log-container" id="logContainer">
+      <div class="log-item">Waiting for data...</div>
+    </div>
+
+    <h2>Firebase Log History</h2>
+    <div class="log-container" id="firebaseLogContainer">
+      <div class="log-item">Loading...</div>
+    </div>
   </div>
 
   <script>
-    // ✅ Firebase config
+    // Firebase config
     const firebaseConfig = {
       apiKey: "AIzaSyA-BEiRRLMkbHCRD6fu9ki2rmDXnx3RofY",
       authDomain: "iot-controller-webapp.firebaseapp.com",
@@ -35,47 +193,160 @@
       appId: "1:1012983548143:web:2755b97df5b95f88c4f31a"
     };
 
-    // ✅ Init Firebase
+    // Init Firebase
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
+    // DOM elements
+    const connectionStatus = document.getElementById("connectionStatus");
     const ledStatus = document.getElementById("ledStatus");
     const ledToggle = document.getElementById("ledToggle");
-    const logList = document.getElementById("logList");
+    const sensorValue = document.getElementById("sensorValue");
+    const voltageValue = document.getElementById("voltageValue");
+    const buttonState = document.getElementById("buttonState");
+    const wifiRssi = document.getElementById("wifiRssi");
+    const uptimeValue = document.getElementById("uptimeValue");
+    const logContainer = document.getElementById("logContainer");
+    const firebaseLogContainer = document.getElementById("firebaseLogContainer");
 
-    // ✅ Connect WebSocket
+    // Connect WebSocket
     const ws = new WebSocket(`wss://websocket-relayserver.onrender.com`);
 
-    ws.onmessage = async (event) => {
-      const state = event.data;
-      ledStatus.textContent = state;
-      ledToggle.checked = (state === "ON");
-
-      // Log to Firestore
-      await db.collection("led_logs").add({
-        status: state,
-        timestamp: new Date()
-      });
+    ws.onopen = () => {
+      connectionStatus.textContent = "WebSocket: Connected";
+      connectionStatus.className = "connection-status connected";
+      addLogItem("WebSocket connected", "led-event");
     };
 
+    ws.onclose = () => {
+      connectionStatus.textContent = "WebSocket: Disconnected";
+      connectionStatus.className = "connection-status disconnected";
+      addLogItem("WebSocket disconnected", "led-event");
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      addLogItem("WebSocket error", "led-event");
+    };
+
+    ws.onmessage = async (event) => {
+      const data = event.data;
+      
+      try {
+        // Try to parse as JSON (sensor data)
+        const parsedData = JSON.parse(data);
+        
+        if (parsedData.type === "sensor_data") {
+          // Update sensor displays
+          sensorValue.textContent = parsedData.sensor_value;
+          voltageValue.textContent = parsedData.voltage.toFixed(2) + "V";
+          buttonState.textContent = parsedData.button_state;
+          wifiRssi.textContent = parsedData.wifi_rssi + " dBm";
+          uptimeValue.textContent = formatUptime(parsedData.uptime);
+          
+          // Add to real-time log
+          addLogItem(`Sensor: ${parsedData.sensor_value}, Voltage: ${parsedData.voltage.toFixed(2)}V, Button: ${parsedData.button_state}`, "sensor-data");
+          
+          // Store in Firebase
+          await db.collection("sensor_data").add({
+            ...parsedData,
+            timestamp: new Date()
+          });
+          
+        } else if (parsedData.type === "button_event") {
+          // Add to real-time log
+          addLogItem(`Button pressed at ${formatUptime(parsedData.timestamp)}`, "button-event");
+          
+          // Store in Firebase
+          await db.collection("button_events").add({
+            ...parsedData,
+            timestamp: new Date()
+          });
+        }
+        
+      } catch (e) {
+        // Not JSON, handle as LED status
+        if (data === "ON" || data === "OFF") {
+          ledStatus.textContent = data;
+          ledToggle.checked = (data === "ON");
+          addLogItem(`LED turned ${data}`, "led-event");
+          
+          // Store LED events in Firebase
+          await db.collection("led_logs").add({
+            status: data,
+            timestamp: new Date()
+          });
+        }
+      }
+    };
+
+    // LED toggle event
     ledToggle.addEventListener("change", () => {
       const msg = ledToggle.checked ? "on" : "off";
       ws.send(msg);
+      addLogItem(`Sent command: ${msg}`, "led-event");
     });
 
-    // ✅ Fetch and display log history
-    db.collection("led_logs")
-      .orderBy("timestamp", "desc")
-      .limit(10)
-      .onSnapshot(snapshot => {
-        logList.innerHTML = ""; // clear old logs
-        snapshot.forEach(doc => {
-          const data = doc.data();
-          const li = document.createElement("li");
-          li.textContent = `${data.status} at ${new Date(data.timestamp.toDate()).toLocaleString()}`;
-          logList.appendChild(li);
+    // Utility functions
+    function addLogItem(message, type) {
+      const logItem = document.createElement("div");
+      logItem.className = `log-item ${type}`;
+      logItem.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+      
+      logContainer.insertBefore(logItem, logContainer.firstChild);
+      
+      // Keep only last 50 items
+      while (logContainer.children.length > 50) {
+        logContainer.removeChild(logContainer.lastChild);
+      }
+    }
+
+    function formatUptime(ms) {
+      const seconds = Math.floor(ms / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+    }
+
+    // Load Firebase history
+    function loadFirebaseHistory() {
+      // Load sensor data
+      db.collection("sensor_data")
+        .orderBy("timestamp", "desc")
+        .limit(20)
+        .onSnapshot(snapshot => {
+          let html = "<h3>Recent Sensor Data</h3>";
+          snapshot.forEach(doc => {
+            const data = doc.data();
+            html += `<div class="log-item sensor-data">
+              ${new Date(data.timestamp.toDate()).toLocaleString()} - 
+              Sensor: ${data.sensor_value}, Voltage: ${data.voltage?.toFixed(2)}V, 
+              Button: ${data.button_state}, WiFi: ${data.wifi_rssi} dBm
+            </div>`;
+          });
+          
+          // Load button events
+          db.collection("button_events")
+            .orderBy("timestamp", "desc")
+            .limit(10)
+            .get()
+            .then(snapshot => {
+              html += "<h3>Recent Button Events</h3>";
+              snapshot.forEach(doc => {
+                const data = doc.data();
+                html += `<div class="log-item button-event">
+                  ${new Date(data.timestamp.toDate()).toLocaleString()} - 
+                  Button ${data.button_state}
+                </div>`;
+              });
+              
+              firebaseLogContainer.innerHTML = html;
+            });
         });
-      });
+    }
+
+    // Load history on page load
+    loadFirebaseHistory();
   </script>
 </body>
 </html>
