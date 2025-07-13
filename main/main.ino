@@ -18,20 +18,25 @@ const int buttonPin = D1; // Digital button pin (change as needed)
 
 // Timing variables
 unsigned long lastSensorRead = 0;
-unsigned long sensorInterval = 5000; // Send sensor data every 5 seconds
+unsigned long sensorInterval = 10000; // Send sensor data every 10 seconds (increased for testing)
 unsigned long lastButtonState = HIGH;
 unsigned long buttonDebounceTime = 0;
 const unsigned long debounceDelay = 50;
+bool espConnected = false;
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch (type) {
     case WStype_CONNECTED:
       Serial.println("[WSS] Connected to server");
       webSocket.sendTXT("ESP8266");  // identify as ESP8266 to server
+      espConnected = true;
+      // Send initial sensor data
+      sendSensorData();
       break;
 
     case WStype_DISCONNECTED:
       Serial.println("[WSS] Disconnected");
+      espConnected = false;
       break;
 
     case WStype_TEXT: {
@@ -52,6 +57,11 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 }
 
 void sendSensorData() {
+  if (!espConnected) {
+    Serial.println("Not connected, skipping sensor data send");
+    return;
+  }
+  
   // Read analog sensor (0-1024)
   int sensorValue = analogRead(sensorPin);
   float voltage = sensorValue * (3.3 / 1024.0); // Convert to voltage
@@ -76,9 +86,11 @@ void sendSensorData() {
   serializeJson(doc, jsonString);
   
   // Send to relay server
-  webSocket.sendTXT(jsonString);
-  
-  Serial.println("Sent sensor data: " + jsonString);
+  if (webSocket.sendTXT(jsonString)) {
+    Serial.println("✓ Sent sensor data: " + jsonString);
+  } else {
+    Serial.println("✗ Failed to send sensor data");
+  }
 }
 
 void sendButtonEvent() {
@@ -123,27 +135,30 @@ void setup() {
 void loop() {
   webSocket.loop();
   
-  // Send sensor data periodically
-  if (millis() - lastSensorRead >= sensorInterval) {
-    sendSensorData();
-    lastSensorRead = millis();
-  }
-  
-  // Check button state (with debouncing)
-  int buttonReading = digitalRead(buttonPin);
-  
-  if (buttonReading != lastButtonState) {
-    buttonDebounceTime = millis();
-  }
-  
-  if ((millis() - buttonDebounceTime) > debounceDelay) {
-    if (buttonReading == LOW && lastButtonState == HIGH) {
-      // Button was pressed
-      sendButtonEvent();
+  // Only send sensor data if connected
+  if (espConnected) {
+    // Send sensor data periodically
+    if (millis() - lastSensorRead >= sensorInterval) {
+      sendSensorData();
+      lastSensorRead = millis();
     }
+    
+    // Check button state (with debouncing)
+    int buttonReading = digitalRead(buttonPin);
+    
+    if (buttonReading != lastButtonState) {
+      buttonDebounceTime = millis();
+    }
+    
+    if ((millis() - buttonDebounceTime) > debounceDelay) {
+      if (buttonReading == LOW && lastButtonState == HIGH) {
+        // Button was pressed
+        sendButtonEvent();
+      }
+    }
+    
+    lastButtonState = buttonReading;
   }
-  
-  lastButtonState = buttonReading;
   
   delay(50); // Small delay to prevent excessive polling
 }

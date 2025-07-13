@@ -216,6 +216,9 @@
       connectionStatus.textContent = "WebSocket: Connected";
       connectionStatus.className = "connection-status connected";
       addLogItem("WebSocket connected", "led-event");
+      
+      // Register as web client
+      ws.send("WEB_CLIENT");
     };
 
     ws.onclose = () => {
