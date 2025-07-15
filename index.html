@@ -2,12 +2,12 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>ESP8266 WebSocket LED & Sensor Control</title>
+  <title>ESP8266 Distance Sensor & LED Control</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 800px;
+      max-width: 1000px;
       margin: 0 auto;
       padding: 20px;
       background-color: #f5f5f5;
@@ -32,15 +32,68 @@
       padding: 15px;
       border-radius: 8px;
       border-left: 4px solid #007bff;
+      transition: all 0.3s ease;
+    }
+    .status-card.danger {
+      border-left-color: #dc3545;
+      background: #fff5f5;
+    }
+    .status-card.warning {
+      border-left-color: #ffc107;
+      background: #fffbf0;
+    }
+    .status-card.safe {
+      border-left-color: #28a745;
+      background: #f0fff4;
     }
     .status-card h3 {
       margin: 0 0 10px 0;
       color: #007bff;
     }
+    .status-card.danger h3 {
+      color: #dc3545;
+    }
+    .status-card.warning h3 {
+      color: #ffc107;
+    }
+    .status-card.safe h3 {
+      color: #28a745;
+    }
     .status-value {
       font-size: 1.2em;
       font-weight: bold;
       color: #333;
+    }
+    .distance-display {
+      font-size: 2em;
+      font-weight: bold;
+      text-align: center;
+      padding: 20px;
+      border-radius: 10px;
+      margin: 20px 0;
+      transition: all 0.3s ease;
+    }
+    .distance-display.danger {
+      background: #dc3545;
+      color: white;
+      animation: pulse 1s infinite;
+    }
+    .distance-display.warning {
+      background: #ffc107;
+      color: #333;
+    }
+    .distance-display.safe {
+      background: #28a745;
+      color: white;
+    }
+    .distance-display.unknown {
+      background: #6c757d;
+      color: white;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
     }
     .toggle {
       position: relative;
@@ -101,8 +154,11 @@
     .sensor-data {
       background-color: #e8f5e8;
     }
-    .button-event {
+    .distance-event {
       background-color: #fff3cd;
+    }
+    .distance-danger {
+      background-color: #f8d7da;
     }
     .led-event {
       background-color: #e2e8f0;
@@ -121,18 +177,34 @@
       background-color: #f8d7da;
       color: #721c24;
     }
+    .chart-container {
+      margin: 20px 0;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
   </style>
 
   <!-- Firebase SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <!-- Chart.js for distance visualization -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 </head>
 <body>
   <div class="container">
-    <h1>ESP8266 WebSocket LED & Sensor Control</h1>
+    <h1>ESP8266 Distance Sensor & LED Control</h1>
     
     <div id="connectionStatus" class="connection-status disconnected">
       WebSocket: Disconnected
+    </div>
+
+    <!-- Distance Display -->
+    <div id="distanceDisplay" class="distance-display unknown">
+      <div>Distance: <span id="distanceValue">--</span> cm</div>
+      <div style="font-size: 0.6em; margin-top: 10px;">
+        Status: <span id="distanceStatus">UNKNOWN</span>
+      </div>
     </div>
 
     <div class="status-grid">
@@ -146,18 +218,13 @@
       </div>
       
       <div class="status-card">
-        <h3>Sensor Value</h3>
+        <h3>Analog Sensor</h3>
         <div class="status-value" id="sensorValue">...</div>
       </div>
       
       <div class="status-card">
         <h3>Voltage</h3>
         <div class="status-value" id="voltageValue">...</div>
-      </div>
-      
-      <div class="status-card">
-        <h3>Button State</h3>
-        <div class="status-value" id="buttonState">...</div>
       </div>
       
       <div class="status-card">
@@ -169,6 +236,17 @@
         <h3>Uptime</h3>
         <div class="status-value" id="uptimeValue">...</div>
       </div>
+
+      <div class="status-card">
+        <h3>Device ID</h3>
+        <div class="status-value" id="deviceId">...</div>
+      </div>
+    </div>
+
+    <!-- Distance Chart -->
+    <div class="chart-container">
+      <h3>Distance History</h3>
+      <canvas id="distanceChart" width="400" height="200"></canvas>
     </div>
 
     <h2>Real-time Events</h2>
@@ -199,15 +277,63 @@
 
     // DOM elements
     const connectionStatus = document.getElementById("connectionStatus");
+    const distanceDisplay = document.getElementById("distanceDisplay");
+    const distanceValue = document.getElementById("distanceValue");
+    const distanceStatus = document.getElementById("distanceStatus");
     const ledStatus = document.getElementById("ledStatus");
     const ledToggle = document.getElementById("ledToggle");
     const sensorValue = document.getElementById("sensorValue");
     const voltageValue = document.getElementById("voltageValue");
-    const buttonState = document.getElementById("buttonState");
     const wifiRssi = document.getElementById("wifiRssi");
     const uptimeValue = document.getElementById("uptimeValue");
+    const deviceId = document.getElementById("deviceId");
     const logContainer = document.getElementById("logContainer");
     const firebaseLogContainer = document.getElementById("firebaseLogContainer");
+
+    // Chart setup
+    const ctx = document.getElementById('distanceChart').getContext('2d');
+    const distanceChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Distance (cm)',
+          data: [],
+          borderColor: '#007bff',
+          backgroundColor: 'rgba(0, 123, 255, 0.1)',
+          tension: 0.1
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 100
+          }
+        },
+        plugins: {
+          legend: {
+            display: true
+          }
+        }
+      }
+    });
+
+    // Chart data management
+    const maxDataPoints = 20;
+    function updateChart(distance) {
+      const now = new Date().toLocaleTimeString();
+      
+      if (distanceChart.data.labels.length >= maxDataPoints) {
+        distanceChart.data.labels.shift();
+        distanceChart.data.datasets[0].data.shift();
+      }
+      
+      distanceChart.data.labels.push(now);
+      distanceChart.data.datasets[0].data.push(distance);
+      distanceChart.update();
+    }
 
     // Connect WebSocket
     const ws = new WebSocket(`wss://websocket-relayserver.onrender.com`);
@@ -241,27 +367,30 @@
         
         if (parsedData.type === "sensor_data") {
           // Update sensor displays
-          sensorValue.textContent = parsedData.sensor_value;
-          voltageValue.textContent = parsedData.voltage.toFixed(2) + "V";
-          buttonState.textContent = parsedData.button_state;
+          sensorValue.textContent = parsedData.analog_sensor || "N/A";
+          voltageValue.textContent = parsedData.voltage ? parsedData.voltage.toFixed(2) + "V" : "N/A";
           wifiRssi.textContent = parsedData.wifi_rssi + " dBm";
           uptimeValue.textContent = formatUptime(parsedData.uptime);
+          deviceId.textContent = parsedData.device_id || "Unknown";
+          
+          // Update distance display
+          if (parsedData.distance_cm !== undefined) {
+            distanceValue.textContent = parsedData.distance_cm.toFixed(1);
+            distanceStatus.textContent = parsedData.distance_status || "UNKNOWN";
+            
+            // Update distance display styling
+            distanceDisplay.className = `distance-display ${getDistanceClass(parsedData.distance_status)}`;
+            
+            // Update chart
+            updateChart(parsedData.distance_cm);
+          }
           
           // Add to real-time log
-          addLogItem(`Sensor: ${parsedData.sensor_value}, Voltage: ${parsedData.voltage.toFixed(2)}V, Button: ${parsedData.button_state}`, "sensor-data");
+          const logType = getLogType(parsedData.distance_status);
+          addLogItem(`Distance: ${parsedData.distance_cm?.toFixed(1)}cm (${parsedData.distance_status}), Sensor: ${parsedData.analog_sensor}, Voltage: ${parsedData.voltage?.toFixed(2)}V`, logType);
           
           // Store in Firebase
           await db.collection("sensor_data").add({
-            ...parsedData,
-            timestamp: new Date()
-          });
-          
-        } else if (parsedData.type === "button_event") {
-          // Add to real-time log
-          addLogItem(`Button pressed at ${formatUptime(parsedData.timestamp)}`, "button-event");
-          
-          // Store in Firebase
-          await db.collection("button_events").add({
             ...parsedData,
             timestamp: new Date()
           });
@@ -269,14 +398,15 @@
         
       } catch (e) {
         // Not JSON, handle as LED status
-        if (data === "ON" || data === "OFF") {
-          ledStatus.textContent = data;
-          ledToggle.checked = (data === "ON");
-          addLogItem(`LED turned ${data}`, "led-event");
+        if (data === "LED_ON" || data === "LED_OFF") {
+          const status = data === "LED_ON" ? "ON" : "OFF";
+          ledStatus.textContent = status;
+          ledToggle.checked = (status === "ON");
+          addLogItem(`LED turned ${status}`, "led-event");
           
           // Store LED events in Firebase
           await db.collection("led_logs").add({
-            status: data,
+            status: status,
             timestamp: new Date()
           });
         }
@@ -291,6 +421,24 @@
     });
 
     // Utility functions
+    function getDistanceClass(status) {
+      switch (status) {
+        case "DANGER": return "danger";
+        case "WARNING": return "warning";
+        case "SAFE": return "safe";
+        default: return "unknown";
+      }
+    }
+
+    function getLogType(status) {
+      switch (status) {
+        case "DANGER": return "distance-danger";
+        case "WARNING": return "distance-event";
+        case "SAFE": return "sensor-data";
+        default: return "sensor-data";
+      }
+    }
+
     function addLogItem(message, type) {
       const logItem = document.createElement("div");
       logItem.className = `log-item ${type}`;
@@ -321,35 +469,27 @@
           let html = "<h3>Recent Sensor Data</h3>";
           snapshot.forEach(doc => {
             const data = doc.data();
-            html += `<div class="log-item sensor-data">
+            html += `<div class="log-item ${getLogType(data.distance_status)}">
               ${new Date(data.timestamp.toDate()).toLocaleString()} - 
-              Sensor: ${data.sensor_value}, Voltage: ${data.voltage?.toFixed(2)}V, 
-              Button: ${data.button_state}, WiFi: ${data.wifi_rssi} dBm
+              Distance: ${data.distance_cm?.toFixed(1)}cm (${data.distance_status}), 
+              Sensor: ${data.analog_sensor}, Voltage: ${data.voltage?.toFixed(2)}V, 
+              WiFi: ${data.wifi_rssi} dBm
             </div>`;
           });
           
-          // Load button events
-          db.collection("button_events")
-            .orderBy("timestamp", "desc")
-            .limit(10)
-            .get()
-            .then(snapshot => {
-              html += "<h3>Recent Button Events</h3>";
-              snapshot.forEach(doc => {
-                const data = doc.data();
-                html += `<div class="log-item button-event">
-                  ${new Date(data.timestamp.toDate()).toLocaleString()} - 
-                  Button ${data.button_state}
-                </div>`;
-              });
-              
-              firebaseLogContainer.innerHTML = html;
-            });
+          firebaseLogContainer.innerHTML = html;
         });
     }
 
     // Load history on page load
     loadFirebaseHistory();
+
+    // Request distance update every 10 seconds
+    setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send("get_distance");
+      }
+    }, 10000);
   </script>
 </body>
 </html>
