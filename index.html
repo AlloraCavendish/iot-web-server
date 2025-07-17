@@ -2,12 +2,12 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>ESP8266 Distance Sensor & LED Control</title>
+  <title>ESP8266 Distance Sensor & Traffic Light Control</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 1000px;
+      max-width: 1200px;
       margin: 0 auto;
       padding: 20px;
       background-color: #f5f5f5;
@@ -23,7 +23,7 @@
     }
     .status-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
       gap: 15px;
       margin: 20px 0;
     }
@@ -100,7 +100,7 @@
       display: inline-block;
       width: 60px;
       height: 34px;
-      margin: 20px 0;
+      margin: 10px 0;
     }
     .toggle input {
       opacity: 0;
@@ -135,6 +135,45 @@
     input:checked + .slider:before {
       transform: translateX(26px);
     }
+    .led-indicators {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      margin: 20px 0;
+    }
+    .led-indicator {
+      text-align: center;
+      padding: 10px;
+      border-radius: 8px;
+      min-width: 80px;
+    }
+    .led-indicator.on {
+      box-shadow: 0 0 15px rgba(255, 255, 255, 0.8);
+    }
+    .led-red {
+      background-color: #dc3545;
+      color: white;
+    }
+    .led-yellow {
+      background-color: #ffc107;
+      color: #333;
+    }
+    .led-green {
+      background-color: #28a745;
+      color: white;
+    }
+    .led-red.off {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .led-yellow.off {
+      background-color: #fff3cd;
+      color: #856404;
+    }
+    .led-green.off {
+      background-color: #d4edda;
+      color: #155724;
+    }
     .log-container {
       max-height: 400px;
       overflow-y: auto;
@@ -163,6 +202,9 @@
     .led-event {
       background-color: #e2e8f0;
     }
+    .button-event {
+      background-color: #d1ecf1;
+    }
     .connection-status {
       padding: 10px;
       border-radius: 5px;
@@ -183,20 +225,46 @@
       background: #f8f9fa;
       border-radius: 8px;
     }
+    .control-buttons {
+      display: flex;
+      gap: 10px;
+      margin: 20px 0;
+    }
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.3s;
+    }
+    .btn-primary {
+      background-color: #007bff;
+      color: white;
+    }
+    .btn-primary:hover {
+      background-color: #0056b3;
+    }
+    .btn-warning {
+      background-color: #ffc107;
+      color: #333;
+    }
+    .btn-warning:hover {
+      background-color: #e0a800;
+    }
   </style>
-
-  <!-- Firebase SDKs -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-  <!-- Chart.js for distance visualization -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 </head>
 <body>
   <div class="container">
-    <h1>ESP8266 Distance Sensor & LED Control</h1>
+    <h1>ESP8266 Distance Sensor & Traffic Light Control</h1>
     
     <div id="connectionStatus" class="connection-status disconnected">
       WebSocket: Disconnected
+    </div>
+
+    <div id="espStatus" class="connection-status disconnected">
+      ESP8266: Disconnected
     </div>
 
     <!-- Distance Display -->
@@ -207,39 +275,47 @@
       </div>
     </div>
 
+    <!-- Traffic Light LEDs -->
+    <div class="led-indicators">
+      <div id="redLed" class="led-indicator led-red off">
+        <div>RED</div>
+        <div>OFF</div>
+      </div>
+      <div id="yellowLed" class="led-indicator led-yellow off">
+        <div>YELLOW</div>
+        <div>OFF</div>
+      </div>
+      <div id="greenLed" class="led-indicator led-green off">
+        <div>GREEN</div>
+        <div>OFF</div>
+      </div>
+    </div>
+
+    <!-- Control Buttons -->
+    <div class="control-buttons">
+      <button class="btn btn-primary" onclick="requestDistance()">Get Distance</button>
+      <button class="btn btn-warning" onclick="toggleManualMode()">Toggle Manual Mode</button>
+    </div>
+
     <div class="status-grid">
       <div class="status-card">
-        <h3>LED Status</h3>
-        <div class="status-value" id="ledStatus">...</div>
-        <label class="toggle">
-          <input type="checkbox" id="ledToggle">
-          <span class="slider"></span>
-        </label>
+        <h3>Manual Mode</h3>
+        <div class="status-value" id="manualMode">Unknown</div>
       </div>
       
       <div class="status-card">
-        <h3>Analog Sensor</h3>
-        <div class="status-value" id="sensorValue">...</div>
+        <h3>Vibration</h3>
+        <div class="status-value" id="vibrationStatus">Unknown</div>
       </div>
       
       <div class="status-card">
-        <h3>Voltage</h3>
-        <div class="status-value" id="voltageValue">...</div>
+        <h3>Buzzer</h3>
+        <div class="status-value" id="buzzerStatus">Unknown</div>
       </div>
       
-      <div class="status-card">
-        <h3>WiFi Signal</h3>
-        <div class="status-value" id="wifiRssi">...</div>
-      </div>
-      
-      <div class="status-card">
-        <h3>Uptime</h3>
-        <div class="status-value" id="uptimeValue">...</div>
-      </div>
-
       <div class="status-card">
         <h3>Device ID</h3>
-        <div class="status-value" id="deviceId">...</div>
+        <div class="status-value" id="deviceId">Unknown</div>
       </div>
     </div>
 
@@ -253,42 +329,23 @@
     <div class="log-container" id="logContainer">
       <div class="log-item">Waiting for data...</div>
     </div>
-
-    <h2>Firebase Log History</h2>
-    <div class="log-container" id="firebaseLogContainer">
-      <div class="log-item">Loading...</div>
-    </div>
   </div>
 
   <script>
-    // Firebase config
-    const firebaseConfig = {
-      apiKey: "AIzaSyA-BEiRRLMkbHCRD6fu9ki2rmDXnx3RofY",
-      authDomain: "iot-controller-webapp.firebaseapp.com",
-      projectId: "iot-controller-webapp",
-      storageBucket: "iot-controller-webapp.firebasestorage.app.appspot.com",
-      messagingSenderId: "1012983548143",
-      appId: "1:1012983548143:web:2755b97df5b95f88c4f31a"
-    };
-
-    // Init Firebase
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-
     // DOM elements
     const connectionStatus = document.getElementById("connectionStatus");
+    const espStatus = document.getElementById("espStatus");
     const distanceDisplay = document.getElementById("distanceDisplay");
     const distanceValue = document.getElementById("distanceValue");
     const distanceStatus = document.getElementById("distanceStatus");
-    const ledStatus = document.getElementById("ledStatus");
-    const ledToggle = document.getElementById("ledToggle");
-    const sensorValue = document.getElementById("sensorValue");
-    const voltageValue = document.getElementById("voltageValue");
-    const wifiRssi = document.getElementById("wifiRssi");
-    const uptimeValue = document.getElementById("uptimeValue");
+    const redLed = document.getElementById("redLed");
+    const yellowLed = document.getElementById("yellowLed");
+    const greenLed = document.getElementById("greenLed");
+    const manualMode = document.getElementById("manualMode");
+    const vibrationStatus = document.getElementById("vibrationStatus");
+    const buzzerStatus = document.getElementById("buzzerStatus");
     const deviceId = document.getElementById("deviceId");
     const logContainer = document.getElementById("logContainer");
-    const firebaseLogContainer = document.getElementById("firebaseLogContainer");
 
     // Chart setup
     const ctx = document.getElementById('distanceChart').getContext('2d');
@@ -321,7 +378,7 @@
     });
 
     // Chart data management
-    const maxDataPoints = 20;
+    const maxDataPoints = 30;
     function updateChart(distance) {
       const now = new Date().toLocaleTimeString();
       
@@ -358,67 +415,108 @@
       addLogItem("WebSocket error", "led-event");
     };
 
-    ws.onmessage = async (event) => {
+    ws.onmessage = (event) => {
       const data = event.data;
       
       try {
-        // Try to parse as JSON (sensor data)
+        // Try to parse as JSON
         const parsedData = JSON.parse(data);
         
         if (parsedData.type === "sensor_data") {
-          // Update sensor displays
-          sensorValue.textContent = parsedData.analog_sensor || "N/A";
-          voltageValue.textContent = parsedData.voltage ? parsedData.voltage.toFixed(2) + "V" : "N/A";
-          wifiRssi.textContent = parsedData.wifi_rssi + " dBm";
-          uptimeValue.textContent = formatUptime(parsedData.uptime);
-          deviceId.textContent = parsedData.device_id || "Unknown";
-          
-          // Update distance display
-          if (parsedData.distance_cm !== undefined) {
-            distanceValue.textContent = parsedData.distance_cm.toFixed(1);
-            distanceStatus.textContent = parsedData.distance_status || "UNKNOWN";
-            
-            // Update distance display styling
-            distanceDisplay.className = `distance-display ${getDistanceClass(parsedData.distance_status)}`;
-            
-            // Update chart
-            updateChart(parsedData.distance_cm);
-          }
-          
-          // Add to real-time log
-          const logType = getLogType(parsedData.distance_status);
-          addLogItem(`Distance: ${parsedData.distance_cm?.toFixed(1)}cm (${parsedData.distance_status}), Sensor: ${parsedData.analog_sensor}, Voltage: ${parsedData.voltage?.toFixed(2)}V`, logType);
-          
-          // Store in Firebase
-          await db.collection("sensor_data").add({
-            ...parsedData,
-            timestamp: new Date()
-          });
+          handleSensorData(parsedData);
+        } else if (parsedData.type === "button_event") {
+          handleButtonEvent(parsedData);
+        } else if (parsedData.type === "esp_status") {
+          handleEspStatus(parsedData);
         }
         
       } catch (e) {
-        // Not JSON, handle as LED status
+        // Handle legacy LED responses
         if (data === "LED_ON" || data === "LED_OFF") {
           const status = data === "LED_ON" ? "ON" : "OFF";
-          ledStatus.textContent = status;
-          ledToggle.checked = (status === "ON");
-          addLogItem(`LED turned ${status}`, "led-event");
-          
-          // Store LED events in Firebase
-          await db.collection("led_logs").add({
-            status: status,
-            timestamp: new Date()
-          });
+          addLogItem(`Legacy LED status: ${status}`, "led-event");
+        } else if (data === "ON" || data === "OFF") {
+          const status = data === "ON" ? "ON" : "OFF";
+          addLogItem(`Legacy LED converted: ${status}`, "led-event");
+        } else {
+          addLogItem(`Unhandled message: ${data}`, "led-event");
         }
       }
     };
 
-    // LED toggle event
-    ledToggle.addEventListener("change", () => {
-      const msg = ledToggle.checked ? "on" : "off";
-      ws.send(msg);
-      addLogItem(`Sent command: ${msg}`, "led-event");
-    });
+    function handleSensorData(data) {
+      // Update distance display
+      if (data.distance_cm !== undefined) {
+        distanceValue.textContent = data.distance_cm.toFixed(1);
+        distanceStatus.textContent = data.distance_status || "UNKNOWN";
+        
+        // Update distance display styling
+        distanceDisplay.className = `distance-display ${getDistanceClass(data.distance_status)}`;
+        
+        // Update chart
+        updateChart(data.distance_cm);
+      }
+
+      // Update LED indicators
+      updateLedIndicator(redLed, data.red_led, "RED");
+      updateLedIndicator(yellowLed, data.yellow_led, "YELLOW");
+      updateLedIndicator(greenLed, data.green_led, "GREEN");
+
+      // Update other status indicators
+      manualMode.textContent = data.manual_mode ? "ON" : "OFF";
+      vibrationStatus.textContent = data.vibration ? "ON" : "OFF";
+      buzzerStatus.textContent = data.buzzer ? "ON" : "OFF";
+      deviceId.textContent = data.device_id || "Unknown";
+
+      // Add to log
+      const logType = getLogType(data.distance_status);
+      addLogItem(`Distance: ${data.distance_cm?.toFixed(1)}cm (${data.distance_status}), Manual: ${data.manual_mode ? 'ON' : 'OFF'}, LEDs: R${data.red_led?'1':'0'} Y${data.yellow_led?'1':'0'} G${data.green_led?'1':'0'}`, logType);
+    }
+
+    function handleButtonEvent(data) {
+      addLogItem(`Button event: ${data.button} = ${data.state}`, "button-event");
+    }
+
+    function handleEspStatus(data) {
+      if (data.status === "disconnected") {
+        espStatus.textContent = "ESP8266: Disconnected";
+        espStatus.className = "connection-status disconnected";
+        addLogItem("ESP8266 disconnected", "led-event");
+      } else if (data.status === "connected") {
+        espStatus.textContent = "ESP8266: Connected";
+        espStatus.className = "connection-status connected";
+        addLogItem("ESP8266 connected", "led-event");
+      }
+    }
+
+    function updateLedIndicator(element, isOn, color) {
+      const statusDiv = element.querySelector('div:last-child');
+      if (isOn) {
+        element.className = `led-indicator led-${color.toLowerCase()} on`;
+        statusDiv.textContent = "ON";
+      } else {
+        element.className = `led-indicator led-${color.toLowerCase()} off`;
+        statusDiv.textContent = "OFF";
+      }
+    }
+
+    function requestDistance() {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send("get_distance");
+        addLogItem("Distance request sent", "led-event");
+      } else {
+        addLogItem("WebSocket not connected", "led-event");
+      }
+    }
+
+    function toggleManualMode() {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send("toggle_manual");
+        addLogItem("Manual mode toggle sent", "led-event");
+      } else {
+        addLogItem("WebSocket not connected", "led-event");
+      }
+    }
 
     // Utility functions
     function getDistanceClass(status) {
@@ -446,50 +544,18 @@
       
       logContainer.insertBefore(logItem, logContainer.firstChild);
       
-      // Keep only last 50 items
-      while (logContainer.children.length > 50) {
+      // Keep only last 100 items
+      while (logContainer.children.length > 100) {
         logContainer.removeChild(logContainer.lastChild);
       }
     }
 
-    function formatUptime(ms) {
-      const seconds = Math.floor(ms / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const hours = Math.floor(minutes / 60);
-      return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
-    }
-
-    // Load Firebase history
-    function loadFirebaseHistory() {
-      // Load sensor data
-      db.collection("sensor_data")
-        .orderBy("timestamp", "desc")
-        .limit(20)
-        .onSnapshot(snapshot => {
-          let html = "<h3>Recent Sensor Data</h3>";
-          snapshot.forEach(doc => {
-            const data = doc.data();
-            html += `<div class="log-item ${getLogType(data.distance_status)}">
-              ${new Date(data.timestamp.toDate()).toLocaleString()} - 
-              Distance: ${data.distance_cm?.toFixed(1)}cm (${data.distance_status}), 
-              Sensor: ${data.analog_sensor}, Voltage: ${data.voltage?.toFixed(2)}V, 
-              WiFi: ${data.wifi_rssi} dBm
-            </div>`;
-          });
-          
-          firebaseLogContainer.innerHTML = html;
-        });
-    }
-
-    // Load history on page load
-    loadFirebaseHistory();
-
-    // Request distance update every 10 seconds
+    // Auto-request distance every 15 seconds
     setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send("get_distance");
       }
-    }, 10000);
+    }, 15000);
   </script>
 </body>
 </html>
